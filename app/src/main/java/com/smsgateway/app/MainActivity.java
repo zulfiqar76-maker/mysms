@@ -201,14 +201,26 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> tvLastPoll.setText("Last server check: " + now));
 
         // Fetch pending messages
-        String response = httpGet(serverUrl + "?action=pending&key=" + secretKey);
+        String rawResponse = httpGet(serverUrl + "?action=pending&key=" + secretKey);
 
-        if (response == null || response.isEmpty()) {
+        if (rawResponse == null || rawResponse.isEmpty()) {
             updateLog(now + " - No response from server");
             return;
         }
 
-        updateLog(now + " - Server: " + response.substring(0, Math.min(response.length(), 60)));
+        // Show raw response for debugging
+        updateLog("RAW: " + rawResponse.substring(0, Math.min(rawResponse.length(), 80)));
+
+        // Strip any HTML/whitespace before JSON
+        String response = rawResponse;
+        int jsonStart = rawResponse.indexOf('{');
+        if (jsonStart > 0) {
+            response = rawResponse.substring(jsonStart);
+            updateLog("Stripped " + jsonStart + " chars of HTML before JSON");
+        } else if (jsonStart < 0) {
+            updateLog("ERROR: No JSON in response! Server returned HTML only");
+            return;
+        }
 
         JSONObject result = new JSONObject(response);
         if (!result.optString("status").equals("ok")) {
