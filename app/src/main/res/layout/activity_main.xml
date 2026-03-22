@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F0F2F5">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- TITLE -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📱 SMS Gateway"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="#1A237E"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="14dp"/>
+
+        <!-- STATUS CARD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SERVICE STATUS"
+                android:textSize="10sp"
+                android:textColor="#999999"
+                android:textAllCaps="true"
+                android:paddingBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🔴 Service is STOPPED"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:paddingBottom="6dp"/>
+
+            <TextView
+                android:id="@+id/tvLastPoll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Last server check: Never"
+                android:textSize="12sp"
+                android:textColor="#666666"/>
+
+            <TextView
+                android:id="@+id/tvSmsSent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SMS Sent this session: 0"
+                android:textSize="12sp"
+                android:textColor="#666666"
+                android:paddingTop="2dp"/>
+
+            <TextView
+                android:id="@+id/tvLastLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Log: Waiting..."
+                android:textSize="11sp"
+                android:textColor="#888888"
+                android:paddingTop="4dp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <!-- PERMISSION CARD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="PERMISSIONS"
+                android:textSize="10sp"
+                android:textColor="#999999"
+                android:textAllCaps="true"
+                android:paddingBottom="4dp"/>
+
+            <TextView
+                android:id="@+id/tvPermission"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Checking..."
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+
+            <Button
+                android:id="@+id/btnFixPermission"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="Grant SMS Permission"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#F44336"
+                android:layout_marginTop="8dp"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- TEST SMS CARD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🧪 Direct SMS Test"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#E65100"
+                android:paddingBottom="4dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Test SMS directly — bypasses server"
+                android:textSize="12sp"
+                android:textColor="#777777"
+                android:paddingBottom="10dp"/>
+
+            <EditText
+                android:id="@+id/etTestPhone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="+923001234567"
+                android:inputType="phone"
+                android:background="@drawable/input_bg"
+                android:padding="12dp"
+                android:textSize="14sp"
+                android:layout_marginBottom="8dp"/>
+
+            <EditText
+                android:id="@+id/etTestMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Test message (optional)"
+                android:inputType="text"
+                android:background="@drawable/input_bg"
+                android:padding="12dp"
+                android:textSize="14sp"
+                android:layout_marginBottom="10dp"/>
+
+            <Button
+                android:id="@+id/btnSendTest"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:text="📨 Send Test SMS Now"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#E65100"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:id="@+id/tvTestResult"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="13sp"
+                android:lineSpacingMultiplier="1.5"/>
+        </LinearLayout>
+
+        <!-- SETTINGS CARD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="⚙️ Server Settings"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#1A237E"
+                android:paddingBottom="10dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="PHP Server URL"
+                android:textSize="12sp"
+                android:textColor="#555"/>
+
+            <EditText
+                android:id="@+id/etServerUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="http://yoursite.com/sms_gateway.php"
+                android:inputType="textUri"
+                android:background="@drawable/input_bg"
+                android:padding="12dp"
+                android:textSize="13sp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="10dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Secret Key"
+                android:textSize="12sp"
+                android:textColor="#555"/>
+
+            <EditText
+                android:id="@+id/etSecretKey"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Enter your secret key"
+                android:inputType="text"
+                android:background="@drawable/input_bg"
+                android:padding="12dp"
+                android:textSize="13sp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="10dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Check Interval (seconds)"
+                android:textSize="12sp"
+                android:textColor="#555"/>
+
+            <EditText
+                android:id="@+id/etInterval"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="15"
+                android:inputType="number"
+                android:background="@drawable/input_bg"
+                android:padding="12dp"
+                android:textSize="13sp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="12dp"/>
+
+            <Button
+                android:id="@+id/btnSave"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:text="💾 Save Settings"
+                android:textSize="15sp"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#3F51B5"/>
+        </LinearLayout>
+
+        <!-- START/STOP -->
+        <Button
+            android:id="@+id/btnStartStop"
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:text="START SERVICE"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#4CAF50"
+            android:layout_marginBottom="10dp"/>
+
+        <!-- TEST SERVER -->
+        <Button
+            android:id="@+id/btnTestConnection"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="🌐 Test Server Connection"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#FF9800"
+            android:layout_marginBottom="10dp"/>
+
+        <!-- ABOUT CARD -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ℹ️ About"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#1A237E"
+                android:paddingBottom="8dp"/>
+
+            <TextView
+                android:id="@+id/tvAbout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Loading..."
+                android:textSize="13sp"
+                android:textColor="#444444"
+                android:lineSpacingMultiplier="1.7"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
