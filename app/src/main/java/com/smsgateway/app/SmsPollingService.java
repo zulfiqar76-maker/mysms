@@ -115,7 +115,17 @@ public class SmsPollingService extends Service {
         }
     }
 
+    private String storedCookies = "";
+
     private String httpGet(String urlString) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            String result = httpGetOnce(urlString, attempt);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private String httpGetOnce(String urlString, int attempt) {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(urlString);
@@ -124,15 +134,60 @@ public class SmsPollingService extends Service {
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(15000);
             conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Linux; Android 9; Mobile) AppleWebKit/537.36 Chrome/91.0.4472.120 Mobile Safari/537.36");
+            conn.setRequestProperty("Accept", "text/html,application/json,*/*");
+            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+
+            if (!storedCookies.isEmpty()) {
+                conn.setRequestProperty("Cookie", storedCookies);
+            }
+
+            // Collect cookies from response
+            int headerIndex = 1;
+            while (true) {
+                String headerName = conn.getHeaderFieldKey(headerIndex);
+                String headerValue = conn.getHeaderField(headerIndex);
+                if (headerName == null) break;
+                if (headerName.equalsIgnoreCase("Set-Cookie")) {
+                    String cookiePart = headerValue.split(";")[0].trim();
+                    String cookieName = cookiePart.split("=")[0];
+                    if (!storedCookies.contains(cookieName)) {
+                        storedCookies = storedCookies.isEmpty() ? cookiePart : storedCookies + "; " + cookiePart;
+                    }
+                }
+                headerIndex++;
+            }
+
             if (conn.getResponseCode() != 200) return null;
+
             BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) sb.append(line);
             reader.close();
-            return sb.toString();
+
+            String body = sb.toString().trim();
+
+            // Handle bot/DDoS challenge
+            if (body.contains("slowAES") || body.contains("__test") ||
+                body.contains("document.cookie") || body.contains("requires Javascript")) {
+                Log.d(TAG, "Bot challenge on attempt " + attempt + ", retrying...");
+                if (!storedCookies.contains("__test")) {
+                    storedCookies = storedCookies.isEmpty() ? "__test=bypass" : storedCookies + "; __test=bypass";
+                }
+                try { Thread.sleep(1000); } catch (Exception ignored) {}
+                conn.disconnect();
+                return null;
+            }
+
+            // Strip HTML before JSON if needed
+            int jsonStart = body.indexOf('{');
+            if (jsonStart > 0) body = body.substring(jsonStart);
+            return body;
+
         } catch (Exception e) {
-            Log.e(TAG, "HTTP error: " + e.getMessage());
+            Log.e(TAG, "HTTP error attempt " + attempt + ": " + e.getMessage());
             return null;
         } finally {
             if (conn != null) conn.disconnect();
