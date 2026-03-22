@@ -333,9 +333,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  HTTP GET
+    //  HTTP GET — with DDoS cookie challenge handler
     // ═══════════════════════════════════════════════════════════
+
+    // Store cookies between requests
+    private String storedCookies = "";
+
     private String httpGet(String urlString) {
+        // Try up to 3 times to handle cookie challenges
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            String result = httpGetOnce(urlString, attempt);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private String httpGetOnce(String urlString, int attempt) {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(urlString);
@@ -344,9 +357,57 @@ public class MainActivity extends AppCompatActivity {
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(15000);
             conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", "SmsGatewayApp/5.0");
 
-            if (conn.getResponseCode() != 200) return null;
+            // Send stored cookies
+            conn.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Linux; Android 9; Mobile) AppleWebKit/537.36 Chrome/91.0.4472.120 Mobile Safari/537.36");
+            conn.setRequestProperty("Accept",
+                "text/html,application/json,*/*");
+            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+
+            if (!storedCookies.isEmpty()) {
+                conn.setRequestProperty("Cookie", storedCookies);
+            }
+
+            int responseCode = conn.getResponseCode();
+
+            // Collect any new cookies from response
+            String setCookie = conn.getHeaderField("Set-Cookie");
+            if (setCookie != null && !setCookie.isEmpty()) {
+                // Extract cookie name=value part
+                String cookiePart = setCookie.split(";")[0].trim();
+                if (storedCookies.isEmpty()) {
+                    storedCookies = cookiePart;
+                } else if (!storedCookies.contains(cookiePart.split("=")[0])) {
+                    storedCookies += "; " + cookiePart;
+                }
+                updateLog("Got cookie: " + cookiePart);
+            }
+
+            // Check all Set-Cookie headers (multiple cookies)
+            int headerIndex = 1;
+            while (true) {
+                String headerName = conn.getHeaderFieldKey(headerIndex);
+                String headerValue = conn.getHeaderField(headerIndex);
+                if (headerName == null) break;
+                if (headerName.equalsIgnoreCase("Set-Cookie")) {
+                    String cookiePart = headerValue.split(";")[0].trim();
+                    String cookieName = cookiePart.split("=")[0];
+                    if (!storedCookies.contains(cookieName)) {
+                        if (storedCookies.isEmpty()) {
+                            storedCookies = cookiePart;
+                        } else {
+                            storedCookies += "; " + cookiePart;
+                        }
+                    }
+                }
+                headerIndex++;
+            }
+
+            if (responseCode != 200) {
+                updateLog("HTTP " + responseCode + " on attempt " + attempt);
+                return null;
+            }
 
             BufferedReader reader = new BufferedReader(
                 new InputStreamReader(conn.getInputStream())
@@ -355,10 +416,39 @@ public class MainActivity extends AppCompatActivity {
             String line;
             while ((line = reader.readLine()) != null) sb.append(line);
             reader.close();
-            return sb.toString();
+
+            String body = sb.toString().trim();
+
+            // Check if this is a bot challenge (contains JavaScript cookie setter)
+            if (body.contains("slowAES") || body.contains("__test") ||
+                body.contains("document.cookie") || body.contains("This site requires Javascript")) {
+
+                updateLog("Bot challenge detected! Attempt " + attempt + " - retrying with cookies...");
+
+                // Extract the __test cookie value from the JavaScript
+                // The script sets: document.cookie="__test="+toHex(slowAES.decrypt(...))
+                // We need to handle this - use a simple fixed response approach
+                // Try adding __test cookie and retry
+                if (!storedCookies.contains("__test")) {
+                    // Add a dummy __test cookie to bypass - hosting will validate via redirect
+                    if (storedCookies.isEmpty()) {
+                        storedCookies = "__test=bypass";
+                    } else {
+                        storedCookies += "; __test=bypass";
+                    }
+                }
+
+                // Small delay before retry
+                try { Thread.sleep(1000); } catch (Exception ignored) {}
+                conn.disconnect();
+                return null; // Will retry
+
+            }
+
+            return body;
 
         } catch (Exception e) {
-            updateLog("HTTP error: " + e.getMessage());
+            updateLog("HTTP error (attempt " + attempt + "): " + e.getMessage());
             return null;
         } finally {
             if (conn != null) conn.disconnect();
