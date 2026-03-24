@@ -20,23 +20,12 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
-import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int SMS_PERMISSION_CODE = 100;
 
-    // UI elements
     private EditText etServerUrl, etSecretKey, etInterval;
     private EditText etTestPhone, etTestMessage;
     private TextView tvStatus, tvAbout, tvPermission;
@@ -45,57 +34,50 @@ public class MainActivity extends AppCompatActivity {
     private Button btnFixPermission, btnSendTest;
 
     private SharedPreferences prefs;
-
-    // Polling handler - runs in foreground (fixes Android 9 background SMS block)
-    private Handler pollHandler = new Handler();
-    private Runnable pollRunnable;
-    private boolean isPolling = false;
-    private int smsSentCount = 0;
+    private Handler refreshHandler = new Handler();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Connect views
-        etServerUrl      = findViewById(R.id.etServerUrl);
-        etSecretKey      = findViewById(R.id.etSecretKey);
-        etInterval       = findViewById(R.id.etInterval);
-        etTestPhone      = findViewById(R.id.etTestPhone);
-        etTestMessage    = findViewById(R.id.etTestMessage);
-        tvStatus         = findViewById(R.id.tvStatus);
-        tvAbout          = findViewById(R.id.tvAbout);
-        tvPermission     = findViewById(R.id.tvPermission);
-        tvLastPoll       = findViewById(R.id.tvLastPoll);
-        tvSmsSent        = findViewById(R.id.tvSmsSent);
-        tvLastLog        = findViewById(R.id.tvLastLog);
-        tvTestResult     = findViewById(R.id.tvTestResult);
-        btnSave          = findViewById(R.id.btnSave);
-        btnStartStop     = findViewById(R.id.btnStartStop);
+        etServerUrl       = findViewById(R.id.etServerUrl);
+        etSecretKey       = findViewById(R.id.etSecretKey);
+        etInterval        = findViewById(R.id.etInterval);
+        etTestPhone       = findViewById(R.id.etTestPhone);
+        etTestMessage     = findViewById(R.id.etTestMessage);
+        tvStatus          = findViewById(R.id.tvStatus);
+        tvAbout           = findViewById(R.id.tvAbout);
+        tvPermission      = findViewById(R.id.tvPermission);
+        tvLastPoll        = findViewById(R.id.tvLastPoll);
+        tvSmsSent         = findViewById(R.id.tvSmsSent);
+        tvLastLog         = findViewById(R.id.tvLastLog);
+        tvTestResult      = findViewById(R.id.tvTestResult);
+        btnSave           = findViewById(R.id.btnSave);
+        btnStartStop      = findViewById(R.id.btnStartStop);
         btnTestConnection = findViewById(R.id.btnTestConnection);
-        btnFixPermission = findViewById(R.id.btnFixPermission);
-        btnSendTest      = findViewById(R.id.btnSendTest);
+        btnFixPermission  = findViewById(R.id.btnFixPermission);
+        btnSendTest       = findViewById(R.id.btnSendTest);
 
         prefs = getSharedPreferences("SmsGateway", MODE_PRIVATE);
 
-        // Load saved settings
         etServerUrl.setText(prefs.getString("server_url", ""));
         etSecretKey.setText(prefs.getString("secret_key", ""));
         etInterval.setText(String.valueOf(prefs.getInt("interval", 15)));
 
-        // About info
         tvAbout.setText(
-            "App Version: 5.0\n" +
+            "App Version: 7.0\n" +
             "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n" +
             "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\n" +
-            "Brand: " + Build.BRAND
+            "Mode: Background Service + WakeLock"
         );
 
         updatePermissionUI();
+        updateStatusUI();
+        startUIRefresh();
 
-        // Button listeners
         btnSave.setOnClickListener(v -> saveSettings());
-        btnStartStop.setOnClickListener(v -> togglePolling());
+        btnStartStop.setOnClickListener(v -> toggleService());
         btnTestConnection.setOnClickListener(v -> testConnection());
         btnSendTest.setOnClickListener(v -> sendTestSms());
         btnFixPermission.setOnClickListener(v ->
@@ -103,368 +85,33 @@ public class MainActivity extends AppCompatActivity {
                 new String[]{Manifest.permission.SEND_SMS}, SMS_PERMISSION_CODE)
         );
 
-        // Request SMS permission
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
                 new String[]{Manifest.permission.SEND_SMS}, SMS_PERMISSION_CODE);
         }
-
-        // Auto restart if was running
-        if (prefs.getBoolean("service_running", false)) {
-            startPolling();
-        }
-
-        updateStatusUI();
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  POLLING — runs in foreground Handler (fixes TECNO Android 9)
-    // ═══════════════════════════════════════════════════════════
-    private void startPolling() {
-        isPolling = true;
-        smsSentCount = 0;
-        prefs.edit().putBoolean("service_running", true).apply();
-
-        int intervalSeconds = prefs.getInt("interval", 15);
-
-        pollRunnable = new Runnable() {
+    // ── UI REFRESH every 3 seconds from SharedPreferences ────────
+    private void startUIRefresh() {
+        refreshHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (!isPolling) return;
-
-                // Run network + SMS in background thread
-                new Thread(() -> {
-                    try {
-                        fetchAndSendMessages();
-                    } catch (Exception e) {
-                        updateLog("Error: " + e.getMessage());
-                    }
-                }).start();
-
-                // Schedule next poll
-                pollHandler.postDelayed(this, intervalSeconds * 1000L);
+                updateStatusUI();
+                updatePermissionUI();
+                refreshHandler.postDelayed(this, 3000);
             }
-        };
-
-        // Start first poll after 2 seconds
-        pollHandler.postDelayed(pollRunnable, 2000);
-        updateStatusUI();
-        updateLog("Polling started every " + intervalSeconds + "s");
-    }
-
-    private void stopPolling() {
-        isPolling = false;
-        prefs.edit().putBoolean("service_running", false).apply();
-        if (pollRunnable != null) {
-            pollHandler.removeCallbacks(pollRunnable);
-        }
-        updateStatusUI();
-        updateLog("Polling stopped");
-    }
-
-    private void togglePolling() {
-        if (isPolling) {
-            stopPolling();
-            Toast.makeText(this, "Service stopped", Toast.LENGTH_SHORT).show();
-        } else {
-            String url = prefs.getString("server_url", "");
-            String key = prefs.getString("secret_key", "");
-            if (url.isEmpty() || key.isEmpty()) {
-                Toast.makeText(this, "Save your settings first!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "SMS permission required!", Toast.LENGTH_SHORT).show();
-                ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.SEND_SMS}, SMS_PERMISSION_CODE);
-                return;
-            }
-            startPolling();
-            Toast.makeText(this, "✅ Service started!", Toast.LENGTH_SHORT).show();
-            askDisableBatteryOptimization();
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  FETCH MESSAGES FROM SERVER AND SEND SMS
-    // ═══════════════════════════════════════════════════════════
-    private void fetchAndSendMessages() throws Exception {
-        String serverUrl = prefs.getString("server_url", "");
-        String secretKey = prefs.getString("secret_key", "");
-
-        if (serverUrl.isEmpty() || secretKey.isEmpty()) return;
-
-        // Update last poll time
-        String now = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-        runOnUiThread(() -> tvLastPoll.setText("Last server check: " + now));
-
-        // Fetch pending messages
-        String rawResponse = httpGet(serverUrl + "?action=pending&key=" + secretKey);
-
-        if (rawResponse == null || rawResponse.isEmpty()) {
-            updateLog(now + " - No response from server");
-            return;
-        }
-
-        // Show raw response for debugging
-        updateLog("RAW: " + rawResponse.substring(0, Math.min(rawResponse.length(), 80)));
-
-        // Strip any HTML/whitespace before JSON
-        String response = rawResponse;
-        int jsonStart = rawResponse.indexOf('{');
-        if (jsonStart > 0) {
-            response = rawResponse.substring(jsonStart);
-            updateLog("Stripped " + jsonStart + " chars of HTML before JSON");
-        } else if (jsonStart < 0) {
-            updateLog("ERROR: No JSON in response! Server returned HTML only");
-            return;
-        }
-
-        JSONObject result = new JSONObject(response);
-        if (!result.optString("status").equals("ok")) {
-            updateLog("Server error: " + result.optString("message"));
-            return;
-        }
-
-        JSONArray messages = result.optJSONArray("messages");
-        if (messages == null || messages.length() == 0) {
-            updateLog(now + " - No pending messages");
-            return;
-        }
-
-        updateLog(now + " - Found " + messages.length() + " message(s) to send!");
-
-        for (int i = 0; i < messages.length(); i++) {
-            JSONObject msg = messages.getJSONObject(i);
-            String id   = msg.getString("id");
-            String to   = msg.getString("to");
-            String text = msg.getString("text");
-
-            updateLog("Sending to: " + to);
-
-            boolean sent = sendSmsNow(to, text);
-
-            // Mark as sent on server
-            httpGet(serverUrl + "?action=update&key=" + secretKey
-                + "&id=" + id + "&status=" + (sent ? "sent" : "failed"));
-
-            if (sent) {
-                smsSentCount++;
-                final int count = smsSentCount;
-                runOnUiThread(() -> tvSmsSent.setText("SMS Sent this session: " + count));
-                updateLog("✅ SMS sent to " + to);
-            } else {
-                updateLog("❌ SMS FAILED to " + to);
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  SEND SMS — works on Android 9 TECNO
-    // ═══════════════════════════════════════════════════════════
-    private boolean sendSmsNow(String phoneNumber, String message) {
-        try {
-            // Ensure country code
-            if (!phoneNumber.startsWith("+") && !phoneNumber.startsWith("00")) {
-                phoneNumber = "+" + phoneNumber;
-            }
-
-            SmsManager smsManager = SmsManager.getDefault();
-
-            ArrayList<String> parts = smsManager.divideMessage(message);
-            if (parts.size() > 1) {
-                smsManager.sendMultipartTextMessage(
-                    phoneNumber, null, parts, null, null
-                );
-            } else {
-                smsManager.sendTextMessage(
-                    phoneNumber, null, message, null, null
-                );
-            }
-            return true;
-
-        } catch (Exception e) {
-            updateLog("SMS error: " + e.getMessage());
-            return false;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  DIRECT TEST SMS (bypasses server)
-    // ═══════════════════════════════════════════════════════════
-    private void sendTestSms() {
-        String phone   = etTestPhone.getText().toString().trim();
-        String message = etTestMessage.getText().toString().trim();
-
-        if (phone.isEmpty()) {
-            tvTestResult.setText("❌ Enter a phone number first");
-            tvTestResult.setTextColor(0xFFCC0000);
-            return;
-        }
-        if (message.isEmpty()) message = "SMS Gateway Test - " + new Date();
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
-                != PackageManager.PERMISSION_GRANTED) {
-            tvTestResult.setText("❌ SMS Permission not granted!");
-            tvTestResult.setTextColor(0xFFCC0000);
-            return;
-        }
-
-        tvTestResult.setText("⏳ Sending...");
-        tvTestResult.setTextColor(0xFF888888);
-
-        final String finalPhone   = phone;
-        final String finalMessage = message;
-
-        new Thread(() -> {
-            boolean ok = sendSmsNow(finalPhone, finalMessage);
-            runOnUiThread(() -> {
-                if (ok) {
-                    tvTestResult.setText("✅ SMS sent to " + finalPhone + "\nCheck your inbox!");
-                    tvTestResult.setTextColor(0xFF2E7D32);
-                } else {
-                    tvTestResult.setText("❌ Failed! Check SMS permission.");
-                    tvTestResult.setTextColor(0xFFCC0000);
-                }
-            });
-        }).start();
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  HTTP GET — with DDoS cookie challenge handler
-    // ═══════════════════════════════════════════════════════════
-
-    // Store cookies between requests
-    private String storedCookies = "";
-
-    private String httpGet(String urlString) {
-        // Try up to 3 times to handle cookie challenges
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            String result = httpGetOnce(urlString, attempt);
-            if (result != null) return result;
-        }
-        return null;
-    }
-
-    private String httpGetOnce(String urlString, int attempt) {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(urlString);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
-            conn.setInstanceFollowRedirects(true);
-
-            // Send stored cookies
-            conn.setRequestProperty("User-Agent",
-                "Mozilla/5.0 (Linux; Android 9; Mobile) AppleWebKit/537.36 Chrome/91.0.4472.120 Mobile Safari/537.36");
-            conn.setRequestProperty("Accept",
-                "text/html,application/json,*/*");
-            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
-
-            if (!storedCookies.isEmpty()) {
-                conn.setRequestProperty("Cookie", storedCookies);
-            }
-
-            int responseCode = conn.getResponseCode();
-
-            // Collect any new cookies from response
-            String setCookie = conn.getHeaderField("Set-Cookie");
-            if (setCookie != null && !setCookie.isEmpty()) {
-                // Extract cookie name=value part
-                String cookiePart = setCookie.split(";")[0].trim();
-                if (storedCookies.isEmpty()) {
-                    storedCookies = cookiePart;
-                } else if (!storedCookies.contains(cookiePart.split("=")[0])) {
-                    storedCookies += "; " + cookiePart;
-                }
-                updateLog("Got cookie: " + cookiePart);
-            }
-
-            // Check all Set-Cookie headers (multiple cookies)
-            int headerIndex = 1;
-            while (true) {
-                String headerName = conn.getHeaderFieldKey(headerIndex);
-                String headerValue = conn.getHeaderField(headerIndex);
-                if (headerName == null) break;
-                if (headerName.equalsIgnoreCase("Set-Cookie")) {
-                    String cookiePart = headerValue.split(";")[0].trim();
-                    String cookieName = cookiePart.split("=")[0];
-                    if (!storedCookies.contains(cookieName)) {
-                        if (storedCookies.isEmpty()) {
-                            storedCookies = cookiePart;
-                        } else {
-                            storedCookies += "; " + cookiePart;
-                        }
-                    }
-                }
-                headerIndex++;
-            }
-
-            if (responseCode != 200) {
-                updateLog("HTTP " + responseCode + " on attempt " + attempt);
-                return null;
-            }
-
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(conn.getInputStream())
-            );
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) sb.append(line);
-            reader.close();
-
-            String body = sb.toString().trim();
-
-            // Check if this is a bot challenge (contains JavaScript cookie setter)
-            if (body.contains("slowAES") || body.contains("__test") ||
-                body.contains("document.cookie") || body.contains("This site requires Javascript")) {
-
-                updateLog("Bot challenge detected! Attempt " + attempt + " - retrying with cookies...");
-
-                // Extract the __test cookie value from the JavaScript
-                // The script sets: document.cookie="__test="+toHex(slowAES.decrypt(...))
-                // We need to handle this - use a simple fixed response approach
-                // Try adding __test cookie and retry
-                if (!storedCookies.contains("__test")) {
-                    // Add a dummy __test cookie to bypass - hosting will validate via redirect
-                    if (storedCookies.isEmpty()) {
-                        storedCookies = "__test=bypass";
-                    } else {
-                        storedCookies += "; __test=bypass";
-                    }
-                }
-
-                // Small delay before retry
-                try { Thread.sleep(1000); } catch (Exception ignored) {}
-                conn.disconnect();
-                return null; // Will retry
-
-            }
-
-            return body;
-
-        } catch (Exception e) {
-            updateLog("HTTP error (attempt " + attempt + "): " + e.getMessage());
-            return null;
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  HELPERS
-    // ═══════════════════════════════════════════════════════════
-    private void updateLog(String msg) {
-        runOnUiThread(() -> tvLastLog.setText("Log: " + msg));
+        }, 3000);
     }
 
     private void updateStatusUI() {
-        if (isPolling) {
-            tvStatus.setText("🟢 Service is RUNNING — Polling your server");
+        boolean running = prefs.getBoolean("service_running", false);
+        int     smsSent = prefs.getInt("sms_sent_count", 0);
+        String lastPoll = prefs.getString("last_poll_time", "Never");
+        String  lastLog = prefs.getString("last_log", "Waiting...");
+
+        if (running) {
+            tvStatus.setText("🟢 Service is RUNNING — Background Active");
             tvStatus.setTextColor(0xFF2E7D32);
             btnStartStop.setText("STOP SERVICE");
             btnStartStop.setBackgroundColor(0xFFE53935);
@@ -474,6 +121,10 @@ public class MainActivity extends AppCompatActivity {
             btnStartStop.setText("START SERVICE");
             btnStartStop.setBackgroundColor(0xFF43A047);
         }
+
+        tvLastPoll.setText("Last server check: " + lastPoll);
+        tvSmsSent.setText("SMS Sent this session: " + smsSent);
+        tvLastLog.setText("Log: " + lastLog);
     }
 
     private void updatePermissionUI() {
@@ -484,12 +135,61 @@ public class MainActivity extends AppCompatActivity {
             tvPermission.setTextColor(0xFF2E7D32);
             btnFixPermission.setVisibility(android.view.View.GONE);
         } else {
-            tvPermission.setText("❌ SMS Permission: DENIED — Tap below to fix!");
+            tvPermission.setText("❌ SMS Permission: DENIED — Tap below!");
             tvPermission.setTextColor(0xFFCC0000);
             btnFixPermission.setVisibility(android.view.View.VISIBLE);
         }
     }
 
+    // ── TOGGLE SERVICE ────────────────────────────────────────────
+    private void toggleService() {
+        boolean running = prefs.getBoolean("service_running", false);
+
+        if (running) {
+            // Stop service
+            stopService(new Intent(this, SmsPollingService.class));
+            prefs.edit()
+                .putBoolean("service_running", false)
+                .putString("last_log", "Service stopped by user")
+                .apply();
+            Toast.makeText(this, "Service stopped", Toast.LENGTH_SHORT).show();
+        } else {
+            // Validate settings
+            String url = prefs.getString("server_url", "");
+            String key = prefs.getString("secret_key", "");
+            if (url.isEmpty() || key.isEmpty()) {
+                Toast.makeText(this, "Save your settings first!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // Check SMS permission
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.SEND_SMS}, SMS_PERMISSION_CODE);
+                return;
+            }
+
+            // Start background service
+            prefs.edit()
+                .putBoolean("service_running", true)
+                .putInt("sms_sent_count", 0)
+                .putString("last_log", "Service starting...")
+                .apply();
+
+            Intent serviceIntent = new Intent(this, SmsPollingService.class);
+            startForegroundService(serviceIntent);
+
+            Toast.makeText(this, "✅ Background service started!", Toast.LENGTH_SHORT).show();
+
+            // Ask to disable battery optimization
+            askDisableBatteryOptimization();
+        }
+
+        updateStatusUI();
+    }
+
+    // ── SAVE SETTINGS ─────────────────────────────────────────────
     private void saveSettings() {
         String url = etServerUrl.getText().toString().trim();
         String key = etSecretKey.getText().toString().trim();
@@ -500,13 +200,13 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "http://" + url;
+            url = "https://" + url;
         }
 
         int interval = 15;
         try {
             interval = Integer.parseInt(intervalStr);
-            if (interval < 5) interval = 5;
+            if (interval < 5)   interval = 5;
             if (interval > 300) interval = 300;
         } catch (Exception ignored) {}
 
@@ -518,8 +218,72 @@ public class MainActivity extends AppCompatActivity {
 
         etServerUrl.setText(url);
         Toast.makeText(this, "✅ Settings saved!", Toast.LENGTH_SHORT).show();
+
+        // Restart service if running to apply new settings
+        if (prefs.getBoolean("service_running", false)) {
+            stopService(new Intent(this, SmsPollingService.class));
+            startForegroundService(new Intent(this, SmsPollingService.class));
+        }
     }
 
+    // ── DIRECT TEST SMS ───────────────────────────────────────────
+    private void sendTestSms() {
+        String phone   = etTestPhone.getText().toString().trim();
+        String message = etTestMessage.getText().toString().trim();
+
+        if (phone.isEmpty()) {
+            tvTestResult.setText("❌ Enter phone number");
+            tvTestResult.setTextColor(0xFFCC0000);
+            return;
+        }
+        if (message.isEmpty()) message = "SMS Gateway Test " + System.currentTimeMillis();
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            tvTestResult.setText("❌ SMS Permission not granted!");
+            tvTestResult.setTextColor(0xFFCC0000);
+            return;
+        }
+
+        tvTestResult.setText("⏳ Sending...");
+        tvTestResult.setTextColor(0xFF888888);
+
+        final String fp = phone;
+        final String fm = message;
+
+        new Thread(() -> {
+            boolean ok = false;
+            String  err = "";
+            try {
+                String pn = fp;
+                if (!pn.startsWith("+") && !pn.startsWith("00")) pn = "+" + pn;
+                SmsManager sm = SmsManager.getDefault();
+                ArrayList<String> parts = sm.divideMessage(fm);
+                if (parts.size() > 1) {
+                    sm.sendMultipartTextMessage(pn, null, parts, null, null);
+                } else {
+                    sm.sendTextMessage(pn, null, fm, null, null);
+                }
+                ok = true;
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+
+            final boolean finalOk  = ok;
+            final String  finalErr = err;
+            runOnUiThread(() -> {
+                if (finalOk) {
+                    tvTestResult.setText("✅ Test SMS sent to " + fp + "\nCheck your inbox!");
+                    tvTestResult.setTextColor(0xFF2E7D32);
+                } else {
+                    tvTestResult.setText("❌ Failed: " + finalErr);
+                    tvTestResult.setTextColor(0xFFCC0000);
+                }
+            });
+        }).start();
+    }
+
+    // ── TEST CONNECTION ───────────────────────────────────────────
     private void testConnection() {
         String url = prefs.getString("server_url", "");
         String key = prefs.getString("secret_key", "");
@@ -531,6 +295,7 @@ public class MainActivity extends AppCompatActivity {
             Uri.parse(url + "?action=pending&key=" + key)));
     }
 
+    // ── BATTERY OPTIMIZATION ──────────────────────────────────────
     private void askDisableBatteryOptimization() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
@@ -554,15 +319,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        updateStatusUI();
+        updatePermissionUI();
+    }
+
+    @Override
     protected void onDestroy() {
-        // Keep polling alive even when app is in background via service
-        if (isPolling) {
-            // Start background service as backup
-            try {
-                startForegroundService(new Intent(this, SmsPollingService.class));
-            } catch (Exception ignored) {}
-        }
-        pollHandler.removeCallbacksAndMessages(null);
+        refreshHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
+        // Service keeps running — do NOT stop it here
     }
 }
