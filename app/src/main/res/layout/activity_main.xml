@@ -279,6 +279,20 @@
             android:backgroundTint="#4CAF50"
             android:layout_marginBottom="10dp"/>
 
+
+<!-- ADD THIS BUTTON in activity_main.xml, right after your btnStartStop Button -->;
+
+<Button
+    android:id="@+id/btnRestart"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:text="RESTART SERVICE"
+    android:backgroundTint="#FF6F00"
+    android:textColor="#FFFFFF"
+    android:visibility="gone"
+    android:layout_marginTop="8dp" />;
+
+        
         <!-- TEST SERVER -->
         <Button
             android:id="@+id/btnTestConnection"
